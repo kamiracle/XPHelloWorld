@@ -18,6 +18,7 @@
 #include "XPLMProcessing.h"
 #include "XPLMMenus.h"
 #include "XPLMUtilities.h"
+#include "XPLMDataAccess.h"
 
 /*
  * Global Variables.  We will store our single window globally.  We also record
@@ -26,10 +27,13 @@
  * 
  */
 
+XPLMDataRef gVerticalSpeed = NULL;
+
  
 
 XPLMWindowID	gWindow = NULL;
 int				gClicked = 0;
+int             drawWinow = 1;
 
 void MyDrawWindowCallback(
                           XPLMWindowID         inWindowID,    
@@ -51,6 +55,9 @@ int MyHandleMouseClickCallback(
                                void *               inRefcon);    
 
 
+
+
+
 /*
  * XPluginStart
  * 
@@ -69,6 +76,9 @@ PLUGIN_API int XPluginStart(
 	strcpy(outName, "HelloWorld");
 	strcpy(outSig, "xplanesdk.examples.helloworld");
 	strcpy(outDesc, "A plugin that makes a window.");
+    
+    gVerticalSpeed = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
+    
     
 	/* Now we create a window.  We pass in a rectangle in left, top,
 	 * right, bottom screen coordinates.  We pass in three callbacks. */
@@ -153,18 +163,31 @@ void MyDrawWindowCallback(
 {
 	int		left, top, right, bottom;
 	float	color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
+    
+    char verticalSpeedStr[30];
+    
+    sprintf(verticalSpeedStr,"%f", XPLMGetDataf(gVerticalSpeed));
 	
 	/* First we get the location of the window passed in to us. */
 	XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
 	
 	/* We now use an XPLMGraphics routine to draw a translucent dark
 	 * rectangle that is our window's shape. */
-	XPLMDrawTranslucentDarkBox(left, top, right, bottom);
+	
+    if (drawWinow > 0)
+    {
     
-	/* Finally we draw the text into the window, also using XPLMGraphics
-	 * routines.  The NULL indicates no word wrapping. */
-	XPLMDrawString(color, left + 5, top - 20, 
-                   (char*)(gClicked ? "I'm a plugin" : "Hello world"), NULL, xplmFont_Basic);
+        XPLMDrawTranslucentDarkBox(left, top, right, bottom);
+    
+    
+        /* Finally we draw the text into the window, also using XPLMGraphics
+         * routines.  The NULL indicates no word wrapping. */
+        XPLMDrawString(color, left + 5, top - 20, 
+                       (char*)(gClicked ? "Joe's a fag!" : "Chris is a fag!"), NULL, xplmFont_Basic);
+    
+        XPLMDrawString(color, left + 5, top - 40,verticalSpeedStr, NULL, xplmFont_Basic);
+    }
+                                                                                                                                    
     
 }                                   
 

@@ -14,7 +14,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "279EDFA51537BF61001B427E"
-               BuildableName = "libXPHelloWorld.dylib"
+               BuildableName = "XPHelloWorld.xpl"
                BlueprintName = "XPHelloWorld"
                ReferencedContainer = "container:XPHelloWorld.xcodeproj">
             </BuildableReference>
