@@ -1,39 +1,71 @@
-/*
- * HellWorld.c
- * 
- * This plugin implements the canonical first program.  In this case, we will 
- * create a window that has the text hello-world in it.  As an added bonus
- * the  text will change to 'This is a plugin' while the mouse is held down
- * in the window.  
- * 
- * This plugin demonstrates creating a window and writing mouse and drawing
- * callbacks for that window.
- * 
- */
+//
+//  XPDataWriter.c
+//  XPHelloWorld
+//
+//  Created by Kyle Miracle on 4/14/12.
+//  Copyright (c) 2012 __MyCompanyName__. All rights reserved.
+//
+
+#if APL
+#if defined(__MACH__)
+#include <Carbon/Carbon.h>
+#endif
+#endif
 
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+
 #include "XPLMDisplay.h"
 #include "XPLMGraphics.h"
 #include "XPLMProcessing.h"
 #include "XPLMMenus.h"
 #include "XPLMUtilities.h"
 #include "XPLMDataAccess.h"
+#include "XPHelloWorld.h"
 
-/*
- * Global Variables.  We will store our single window globally.  We also record
- * whether the mouse is down from our mouse handler.  The drawing handler looks
- * at this information and draws the appropriate display.
- * 
- */
+//Network Includes
 
-XPLMDataRef gVerticalSpeed = NULL;
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <arpa/inet.h>
 
- 
+#define BUFSIZE 300
+
+const char * serverIP = "192.168.1.117";
+int * gSocket;
+
+XPLMDataRef gVerticalSpeedRef = NULL;
+XPLMDataRef gIndicatedAirspeedRef = NULL;
+XPLMDataRef gAltitudeRef = NULL;
+float gVspeed,gAirspeed,gAltitude;
 
 XPLMWindowID	gWindow = NULL;
 int				gClicked = 0;
 int             drawWinow = 1;
+
+#if APL && __MACH__
+int ConvertPath(const char * inPath, char * outPath, int outPathMaxLen);
+#endif
+
+void logFlightData();
+
+/* Loop callback prototype. */
+float	MyFlightLoopCallback(
+                             float                inElapsedSinceLastCall,    
+                             float                inElapsedTimeSinceLastFlightLoop,    
+                             int                  inCounter,    
+                             void *               inRefcon);  
+
+float	SendDataFlightLoopCallback(
+                             float                inElapsedSinceLastCall,    
+                             float                inElapsedTimeSinceLastFlightLoop,    
+                             int                  inCounter,    
+                             void *               inRefcon);  
 
 void MyDrawWindowCallback(
                           XPLMWindowID         inWindowID,    
@@ -52,36 +84,21 @@ int MyHandleMouseClickCallback(
                                int                  x,    
                                int                  y,    
                                XPLMMouseStatus      inMouse,    
-                               void *               inRefcon);    
+                               void *               inRefcon);
 
 
-
-
-
-/*
- * XPluginStart
- * 
- * Our start routine registers our window and does any other initialization we 
- * must do.
- * 
- */
 PLUGIN_API int XPluginStart(
                             char *		outName,
                             char *		outSig,
                             char *		outDesc)
-{
-	/* First we must fill in the passed in buffers to describe our
-	 * plugin to the plugin-system. */
+{    
+    strcpy(outName, "Data Writer");
+    strcpy(outSig, "kamiracle.xpdatawriter");
+    strcpy(outDesc, "A plugin that continuously output ceratain sim data to a local file");
     
-	strcpy(outName, "HelloWorld");
-	strcpy(outSig, "xplanesdk.examples.helloworld");
-	strcpy(outDesc, "A plugin that makes a window.");
-    
-    gVerticalSpeed = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
-    
-    
-	/* Now we create a window.  We pass in a rectangle in left, top,
-	 * right, bottom screen coordinates.  We pass in three callbacks. */
+    gVerticalSpeedRef = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
+    gIndicatedAirspeedRef = XPLMFindDataRef("sim/flightmodel/position/indicated_airspeed");
+    gAltitudeRef = XPLMFindDataRef("sim/flightmodel/position/elevation");
     
 	gWindow = XPLMCreateWindow(
                                50, 600, 300, 200,			/* Area of the window. */
@@ -90,57 +107,59 @@ PLUGIN_API int XPluginStart(
                                MyHandleKeyCallback,
                                MyHandleMouseClickCallback,
                                NULL);						/* Refcon - not used. */
-
-
     
+    char	outputPath[255];
     
-
+#if APL && __MACH__
+	char outputPath2[255];
+	int Result = 0;
+#endif
     
-	/* We must return 1 to indicate successful initialization, otherwise we
-	 * will not be called back again. */
+    XPLMGetSystemPath(outputPath);
+    strcat(outputPath, "XPDataWriter.txt");
     
-	return 1;
+#if APL && __MACH__
+	Result = ConvertPath(outputPath, outputPath2, sizeof(outputPath));
+	if (Result == 0)
+		strcpy(outputPath, outputPath2);
+	else
+		XPLMDebugString("TimedProccessing - Unable to convert path\n");
+#endif
+    
+    //gDataOutLog = fopen(outputPath, "w");
+    
+    /* Register our flight loop callback for once every thirty seconds. */
+    
+    XPLMRegisterFlightLoopCallback(MyFlightLoopCallback, 1.0, NULL);
+    XPLMRegisterFlightLoopCallback(SendDataFlightLoopCallback, 10.0, NULL);
+    
+    return 1;
 }
 
-/*
- * XPluginStop
- * 
- * Our cleanup routine deallocates our window.
- * 
- */
 PLUGIN_API void	XPluginStop(void)
 {
-	XPLMDestroyWindow(gWindow);
+	/* Unregister the callback */
+	XPLMUnregisterFlightLoopCallback(MyFlightLoopCallback, NULL);
+    XPLMUnregisterFlightLoopCallback(SendDataFlightLoopCallback, NULL);
+    
+    if(*gSocket){
+        close(*gSocket);
+    }
+    
+    XPLMDestroyWindow(gWindow);
 }
 
-/*
- * XPluginDisable
- * 
- * We do not need to do anything when we are disabled, but we must provide the handler.
- * 
- */
 PLUGIN_API void XPluginDisable(void)
 {
+	/* Flush the file when we are disabled.  This is convenient; you 
+	 * can disable the plugin and then look at the output on disk. */
 }
 
-/*
- * XPluginEnable.
- * 
- * We don't do any enable-specific initialization, but we must return 1 to indicate
- * that we may be enabled at this time.
- * 
- */
 PLUGIN_API int XPluginEnable(void)
 {
 	return 1;
 }
 
-/*
- * XPluginReceiveMessage
- * 
- * We don't have to do anything in our receive message handler, but we must provide one.
- * 
- */
 PLUGIN_API void XPluginReceiveMessage(
                                       XPLMPluginID	inFromWho,
                                       long			inMessage,
@@ -148,15 +167,69 @@ PLUGIN_API void XPluginReceiveMessage(
 {
 }
 
-/*
- * MyDrawingWindowCallback
- * 
- * This callback does the work of drawing our window once per sim cycle each time
- * it is needed.  It dynamically changes the text depending on the saved mouse
- * status.  Note that we don't have to tell X-Plane to redraw us when our text
- * changes; we are redrawn by the sim continuously.
- * 
- */
+float	MyFlightLoopCallback(
+                             float                inElapsedSinceLastCall,    
+                             float                inElapsedTimeSinceLastFlightLoop,    
+                             int                  inCounter,    
+                             void *               inRefcon)
+{
+    /* Write data to a file */
+    //fprintf(gDataOutLog, "Vertical Speed=%f, Airspeed=%f, Altitude=%f.\n", vspeed, airspeed, altitude);
+    
+    gVspeed = XPLMGetDataf(gVerticalSpeedRef);
+    gAirspeed = XPLMGetDataf(gIndicatedAirspeedRef);
+    gAltitude = XPLMGetDataf(gAltitudeRef);
+    
+    logFlightData();
+    
+    return 1.0;
+    
+}
+
+float	SendDataFlightLoopCallback(
+                             float                inElapsedSinceLastCall,    
+                             float                inElapsedTimeSinceLastFlightLoop,    
+                             int                  inCounter,    
+                             void *               inRefcon)
+{
+    int sockfd;
+    short inPort = 12345;
+    char buffer[100];
+    struct sockaddr_in serverAddress;
+    
+    if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
+        perror( "socket" );
+        exit(1);
+    }
+    else {
+        printf("Successful call of socket()\n");
+        gSocket = &sockfd;
+    }
+    
+    //bzero(&serverAddress, sizeof(serverAddress));
+    memset(&serverAddress, 0, sizeof(serverAddress));
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_port = htons(inPort);
+    
+    inet_pton( AF_INET, serverIP, &serverAddress.sin_addr);
+    
+    if ( connect( sockfd, (struct sockaddr *)&serverAddress,
+                 sizeof(serverAddress)) < 0 ) 
+    {
+        perror("connect");
+        exit(1);
+    }
+    
+    sprintf(buffer, "Airspeed:%f Altitude:%f Vertical Speed:%f \n", gAirspeed, gAltitude, gVspeed);
+    
+    if ( write( sockfd, buffer, 100) < 0) {
+        perror("write");
+        exit(1);
+    }
+    
+    return 10.0;
+}
+
 void MyDrawWindowCallback(
                           XPLMWindowID         inWindowID,    
                           void *               inRefcon)
@@ -164,10 +237,6 @@ void MyDrawWindowCallback(
 	int		left, top, right, bottom;
 	float	color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
     
-    char verticalSpeedStr[30];
-    
-    sprintf(verticalSpeedStr,"%f", XPLMGetDataf(gVerticalSpeed));
-	
 	/* First we get the location of the window passed in to us. */
 	XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
 	
@@ -176,28 +245,19 @@ void MyDrawWindowCallback(
 	
     if (drawWinow > 0)
     {
-    
+        
         XPLMDrawTranslucentDarkBox(left, top, right, bottom);
-    
-    
+        
+        
         /* Finally we draw the text into the window, also using XPLMGraphics
          * routines.  The NULL indicates no word wrapping. */
         XPLMDrawString(color, left + 5, top - 20, 
-                       (char*)(gClicked ? "Joe's a fag!" : "Chris is a fag!"), NULL, xplmFont_Basic);
-    
-        XPLMDrawString(color, left + 5, top - 40,verticalSpeedStr, NULL, xplmFont_Basic);
+                       (char*)(gClicked ? "Clicked" : "Unclicked"), NULL, xplmFont_Basic);
     }
-                                                                                                                                    
     
-}                                   
+    
+}
 
-/*
- * MyHandleKeyCallback
- * 
- * Our key handling callback does nothing in this plugin.  This is ok; 
- * we simply don't use keyboard input.
- * 
- */
 void MyHandleKeyCallback(
                          XPLMWindowID         inWindowID,    
                          char                 inKey,    
@@ -206,34 +266,50 @@ void MyHandleKeyCallback(
                          void *               inRefcon,    
                          int                  losingFocus)
 {
-}                                   
+}  
 
-/*
- * MyHandleMouseClickCallback
- * 
- * Our mouse click callback toggles the status of our mouse variable 
- * as the mouse is clicked.  We then update our text on the next sim 
- * cycle.
- * 
- */
 int MyHandleMouseClickCallback(
                                XPLMWindowID         inWindowID,    
                                int                  x,    
                                int                  y,    
                                XPLMMouseStatus      inMouse,    
                                void *               inRefcon)
-{
-	/* If we get a down or up, toggle our status click.  We will
-	 * never get a down without an up if we accept the down. */
+{	
 	if ((inMouse == xplm_MouseDown) || (inMouse == xplm_MouseUp))
 		gClicked = 1 - gClicked;
 	
-	/* Returning 1 tells X-Plane that we 'accepted' the click; otherwise
-	 * it would be passed to the next window behind us.  If we accept
-	 * the click we get mouse moved and mouse up callbacks, if we don't
-	 * we do not get any more callbacks.  It is worth noting that we 
-	 * will receive mouse moved and mouse up even if the mouse is dragged
-	 * out of our window's box as long as the click started in our window's 
-	 * box. */
 	return 1;
-}                                      
+}   
+
+#if APL && __MACH__
+#include <Carbon/Carbon.h>
+int ConvertPath(const char * inPath, char * outPath, int outPathMaxLen)
+{
+	CFStringRef inStr = CFStringCreateWithCString(kCFAllocatorDefault, inPath ,kCFStringEncodingMacRoman);
+	if (inStr == NULL)
+		return -1;
+	CFURLRef url = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, inStr, kCFURLHFSPathStyle,0);
+	CFStringRef outStr = CFURLCopyFileSystemPath(url, kCFURLPOSIXPathStyle);
+	if (!CFStringGetCString(outStr, outPath, outPathMaxLen, kCFURLPOSIXPathStyle))
+		return -1;
+	CFRelease(outStr);
+	CFRelease(url);
+	CFRelease(inStr); 	
+	return 0;
+}
+#endif
+
+void logFlightData()
+{
+    char buffer[BUFSIZE];
+    
+    sprintf(buffer, "Airspeed:%f Altitude:%f Vertical Speed:%f \n", gAirspeed, gAltitude, gVspeed);
+    XPLMDebugString(buffer);
+}
+
+
+
+
+
+
+                                   

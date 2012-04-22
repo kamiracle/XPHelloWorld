@@ -7,13 +7,13 @@
          shouldBeEnabled = "No"
          ignoreCount = "0"
          continueAfterRunningActions = "No"
-         filePath = "XPHelloWorld.c"
-         timestampString = "356118466.564787"
+         filePath = "XPDataWriter.c"
+         timestampString = "356153188.845227"
          startingColumnNumber = "9223372036854775807"
          endingColumnNumber = "9223372036854775807"
-         startingLineNumber = "178"
-         endingLineNumber = "178"
-         landmarkName = "MyDrawWindowCallback()"
+         startingLineNumber = "52"
+         endingLineNumber = "52"
+         landmarkName = "XPluginStart()"
          landmarkType = "7">
       </FileBreakpoint>
    </FileBreakpoints>
