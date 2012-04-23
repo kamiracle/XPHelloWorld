@@ -25,7 +25,6 @@
 #include "XPHelloWorld.h"
 
 //Network Includes
-
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -36,7 +35,8 @@
 
 #define BUFSIZE 300
 
-const char * serverIP = "192.168.1.117";
+const char * serverIP = "127.0.0.1";
+const char * version = "X-Plane Airlines version 0.1";
 int * gSocket;
 
 XPLMDataRef gVerticalSpeedRef = NULL;
@@ -194,17 +194,22 @@ float	SendDataFlightLoopCallback(
 {
     int sockfd;
     short inPort = 12345;
-    char buffer[100];
+    char buffer[256];
     struct sockaddr_in serverAddress;
+    float	color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
+    int set = 1;
     
     if ( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ) {
         perror( "socket" );
-        exit(1);
+        XPLMDebugString(version);
+        XPLMDebugString(": Failed at socket\n");
+        return;
     }
     else {
-        printf("Successful call of socket()\n");
         gSocket = &sockfd;
     }
+    
+    setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, (void *)&set, sizeof(int));
     
     //bzero(&serverAddress, sizeof(serverAddress));
     memset(&serverAddress, 0, sizeof(serverAddress));
@@ -216,18 +221,20 @@ float	SendDataFlightLoopCallback(
     if ( connect( sockfd, (struct sockaddr *)&serverAddress,
                  sizeof(serverAddress)) < 0 ) 
     {
-        perror("connect");
-        exit(1);
+        XPLMDebugString(version);
+        XPLMDebugString(": Failed at connect\n");
     }
     
-    sprintf(buffer, "Airspeed:%f Altitude:%f Vertical Speed:%f \n", gAirspeed, gAltitude, gVspeed);
+    memset(&buffer, 0, sizeof(buffer));
+    sprintf(buffer, "%s airspeed:%f altitude:%f verticalSpeed:%f \n", version, gAirspeed, gAltitude, gVspeed);
     
-    if ( write( sockfd, buffer, 100) < 0) {
-        perror("write");
-        exit(1);
+    if ( write( sockfd, buffer, 255) < 0) {
+        XPLMDebugString(version);
+        XPLMDebugString(": Failed at write\n");
     }
     
-    return 10.0;
+    close(sockfd);
+    return 5.0;
 }
 
 void MyDrawWindowCallback(
@@ -235,11 +242,12 @@ void MyDrawWindowCallback(
                           void *               inRefcon)
 {
 	int		left, top, right, bottom;
+    
 	float	color[] = { 1.0, 1.0, 1.0 }; 	/* RGB White */
     
 	/* First we get the location of the window passed in to us. */
 	XPLMGetWindowGeometry(inWindowID, &left, &top, &right, &bottom);
-	
+
 	/* We now use an XPLMGraphics routine to draw a translucent dark
 	 * rectangle that is our window's shape. */
 	
@@ -253,6 +261,12 @@ void MyDrawWindowCallback(
          * routines.  The NULL indicates no word wrapping. */
         XPLMDrawString(color, left + 5, top - 20, 
                        (char*)(gClicked ? "Clicked" : "Unclicked"), NULL, xplmFont_Basic);
+        
+        XPLMDrawString(color, left + 5, top - 40, 
+                       (char*)(serverIP), NULL, xplmFont_Basic);
+        
+        XPLMDrawString(color, left + 5, top - 60, 
+                       (char*)("Test Connection"), NULL, xplmFont_Basic);
     }
     
     
