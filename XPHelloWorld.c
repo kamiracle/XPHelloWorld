@@ -206,6 +206,7 @@ float	SendDataFlightLoopCallback(
         return;
     }
     else {
+    	// does this even fucking work?
         gSocket = &sockfd;
     }
     
